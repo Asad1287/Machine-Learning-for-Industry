@@ -109,3 +109,135 @@ plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
 
+
+import numpy as np
+
+class GeneticAlgorithm:
+    def __init__(self, target_function, population_size=100, generations=100,
+                 crossover_rate=0.8, mutation_rate=0.1, bounds=None):
+        self.n_genes = 7  # Number of setpoints to optimize
+        self.target_function = target_function
+        self.population_size = population_size
+        self.generations = generations
+        self.crossover_rate = crossover_rate
+        self.mutation_rate = mutation_rate
+        if bounds is None:
+            # Bounds as per Table 3 in the paper
+            self.bounds = [
+                (0.4, 4.0),     # S_OD4
+                (0.4, 4.0),     # S_OD5
+                (0.4, 4.0),     # S_OD6
+                (0.1, 1.0),     # S_NO4
+                (0.5, 1.0),     # k_RE
+                (1500, 3000),   # Q_PC
+                (100, 800)      # Q_EXC
+            ]
+        else:
+            self.bounds = bounds
+        self.population = None
+        self.fitness = None
+        self.parents = None
+        self.offspring = None
+
+    def initialize_population(self):
+        # Initialize population within the bounds
+        self.population = np.random.uniform(
+            low=[b[0] for b in self.bounds],
+            high=[b[1] for b in self.bounds],
+            size=(self.population_size, self.n_genes)
+        )
+
+    def evaluate_fitness(self):
+        # Compute fitness for each individual
+        self.fitness = np.array([self.target_function(individual) for individual in self.population])
+
+    def select_parents(self):
+        # Inverse fitness for minimization
+        inverse_fitness = 1 / (1 + self.fitness)
+        total_fitness = np.sum(inverse_fitness)
+        selection_prob = inverse_fitness / total_fitness
+        indices = np.random.choice(np.arange(self.population_size), size=self.population_size, p=selection_prob)
+        self.parents = self.population[indices]
+
+    def crossover(self):
+        # Perform crossover using binary vector S
+        offspring = []
+        for i in range(0, self.population_size, 2):
+            parent1 = self.parents[i]
+            parent2 = self.parents[(i + 1) % self.population_size]
+            child1, child2 = parent1.copy(), parent2.copy()
+            if np.random.rand() < self.crossover_rate:
+                S = np.random.randint(0, 2, self.n_genes)
+                for gene_index in range(self.n_genes):
+                    if S[gene_index] == 1:
+                        child1[gene_index] = parent2[gene_index]
+                        child2[gene_index] = parent1[gene_index]
+            offspring.extend([child1, child2])
+        self.offspring = np.array(offspring)
+
+    def mutate(self, current_generation):
+        # Decrease standard deviation over generations
+        initial_std = np.array([b[1] - b[0] for b in self.bounds])
+        std_dev = initial_std * (1 - current_generation / self.generations)
+        for i in range(self.population_size):
+            for j in range(self.n_genes):
+                if np.random.rand() < self.mutation_rate:
+                    mutation_value = np.random.normal(0, std_dev[j])
+                    self.offspring[i, j] += mutation_value
+                    # Ensure the mutated value is within bounds
+                    self.offspring[i, j] = np.clip(self.offspring[i, j], self.bounds[j][0], self.bounds[j][1])
+
+    def run(self):
+        self.initialize_population()
+        for gen in range(1, self.generations + 1):
+            self.evaluate_fitness()
+            best_index = np.argmin(self.fitness)
+            best_fitness = self.fitness[best_index]
+            best_individual = self.population[best_index]
+            print(f"Generation {gen}: Best Fitness = {best_fitness}")
+            self.select_parents()
+            self.crossover()
+            self.mutate(current_generation=gen)
+            # Combine parents and offspring
+            combined_population = np.vstack((self.population, self.offspring))
+            combined_fitness = np.array([self.target_function(ind) for ind in combined_population])
+            # Select the best N individuals for the next generation
+            sorted_indices = np.argsort(combined_fitness)
+            self.population = combined_population[sorted_indices][:self.population_size]
+        # After all generations, return the best solution
+        self.evaluate_fitness()
+        best_index = np.argmin(self.fitness)
+        best_fitness = self.fitness[best_index]
+        best_individual = self.population[best_index]
+        return best_individual, best_fitness
+
+# Placeholder for the simulation and performance criterion computation
+def target_function(setpoints):
+    """
+    Compute the performance criterion J for the given setpoints.
+    This function should simulate the wastewater treatment process
+    and compute J as per Equation (4) in the paper.
+    For demonstration purposes, we'll use a mock function.
+    """
+    # Extract setpoints
+    S_OD4, S_OD5, S_OD6, S_NO4, k_RE, Q_PC, Q_EXC = setpoints
+
+    # Mock computation of J (to be replaced with actual simulation)
+    # Example: Simple quadratic function centered around some optimal values
+    J1 = (S_OD4 - 2.2)**2 + (S_OD5 - 2.0)**2 + (S_OD6 - 2.0)**2
+    J2 = (S_NO4 - 0.5)**2 + (k_RE - 0.75)**2
+    J3 = ((Q_PC - 2250) / 2250)**2 + ((Q_EXC - 450) / 450)**2
+    alpha1, alpha2, alpha3 = 0.5, 1, 100
+    J = alpha1 * J1 + alpha2 * J2 + alpha3 * J3
+
+    return J
+
+if __name__ == "__main__":
+    ga = GeneticAlgorithm(target_function=target_function, population_size=50, generations=50)
+    best_setpoints, best_fitness = ga.run()
+    print("\nOptimal Setpoints Found:")
+    setpoint_names = ['S_OD4', 'S_OD5', 'S_OD6', 'S_NO4', 'k_RE', 'Q_PC', 'Q_EXC']
+    for name, value in zip(setpoint_names, best_setpoints):
+        print(f"{name}: {value}")
+    print(f"Minimum Performance Criterion J: {best_fitness}")
+
